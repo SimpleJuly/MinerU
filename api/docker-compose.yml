@@ -9,10 +9,43 @@ services:
       - "8000:8000"
     volumes:
       - mineru_data:/app/api/output
+      # 增加模型缓存挂载点，避免每次重建容器都要重新下载
+      - model_cache:/root/.cache
+      # 挂载YOLO模型目录，确保模型持久化
+      - yolo_models:/app/magic_pdf/resources/models/Layout/YOLO
+      # 挂载表格识别模型目录
+      - table_models:/app/magic_pdf/resources/models/TabRec/RapidTable
     environment:
       - TZ=Asia/Shanghai
+      # 设置Python不缓存字节码，方便调试
+      - PYTHONDONTWRITEBYTECODE=1
+      # 让Python输出不缓冲，便于查看日志
+      - PYTHONUNBUFFERED=1
+      # 更精确的错误跟踪
+      - PYTHONFAULTHANDLER=1
+      # 禁用Array API以避免NumPy相关错误
+      - NUMPY_EXPERIMENTAL_ARRAY_FUNCTION=0
+      # torch设置为不使用cudnn以提高兼容性
+      - TORCH_CUDNN_V8_API_ENABLED=0
+      # 设置日志级别为DEBUG，便于排查问题
+      - LOG_LEVEL=DEBUG
     restart: unless-stopped
-    # 如果服务器有GPU，可以取消下面的注释以使用GPU
+    # 健康检查确保服务正常运行
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/tasks"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # 资源限制，根据实际服务器情况调整
+    deploy:
+      resources:
+        limits:
+          # 增加内存限制以支持ultralytics
+          memory: 12G
+          cpus: '4'
+    # GPU配置 - 两种方式二选一
+    # 方式1: 新版Docker Compose (推荐)
     # deploy:
     #   resources:
     #     reservations:
@@ -20,7 +53,19 @@ services:
     #         - driver: nvidia
     #           count: 1
     #           capabilities: [gpu]
+    
+    # 方式2: 兼容旧版Docker (如果上面的不工作，尝试这个)
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 volumes:
   mineru_data:
-    # 使用命名卷存储解析结果，防止容器重启后数据丢失 
+    # 使用命名卷存储解析结果，防止容器重启后数据丢失
+  model_cache:
+    # 存储模型缓存，避免重复下载
+  yolo_models:
+    # 存储YOLO模型权重
+  table_models:
+    # 存储表格识别模型权重 
