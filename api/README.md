@@ -172,3 +172,7 @@ docker run --rm -v mineru_data:/data -v $(pwd):/backup ubuntu tar czf /backup/mi
 ```bash
 docker rmi $(docker images | grep "none" | awk '{print $3}') && docker builder prune
 ```
+
+```bash
+ export http_proxy=http://192.168.3.176:7890
+```

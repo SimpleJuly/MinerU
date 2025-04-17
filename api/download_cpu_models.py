@@ -91,7 +91,7 @@ def download_models():
         
         # 下载MFD模型
         logger.info("直接下载YOLO模型...")
-        model_url = "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt"
+        model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt"
         safe_download(url=model_url, file=mfd_target, attempt=3)
         logger.info(f"YOLO模型下载成功: {mfd_target}")
         
@@ -118,7 +118,7 @@ def download_models():
         # 备用下载方法
         try:
             logger.info("尝试备用方法下载YOLO模型...")
-            model_url = "https://github.com/ultralytics/assets/releases/download/v0.0.0/yolov8n.pt"
+            model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt"
             
             # 确保两个目录都存在
             tmp_model_dir = "/tmp/models/MFD/YOLO"
