@@ -160,10 +160,14 @@ export PYTHONPATH=/app:$PYTHONPATH
 # 检查模型文件
 MFD_MODEL_PATH="/tmp/models/MFD/YOLO/yolo_v8_ft.pt"
 APP_MODEL_PATH="/app/magic_pdf/resources/models/MFD/YOLO/yolo_v8_ft.pt"
+MFR_DIR="/app/magic_pdf/resources/models/MFR/unimernet_hf_small_2503"
+TMP_MFR_DIR="/tmp/models/MFR/unimernet_hf_small_2503"
 
 # 确保目录存在
 mkdir -p "/tmp/models/MFD/YOLO"
 mkdir -p "/app/magic_pdf/resources/models/MFD/YOLO"
+mkdir -p "$MFR_DIR"
+mkdir -p "$TMP_MFR_DIR"
 
 # 如果模型不存在，尝试下载一个基础模型
 if [ ! -f "$MFD_MODEL_PATH" ]; then
@@ -179,6 +183,27 @@ if [ ! -f "$MFD_MODEL_PATH" ]; then
     fi
 else
     echo "MFD模型文件存在: $MFD_MODEL_PATH"
+fi
+
+# 检查和创建MFR配置文件
+if [ ! -f "$MFR_DIR/config.json" ]; then
+    echo "创建MFR模型配置文件..."
+    echo '{"_name_or_path": "unimernet-small", "architectures": ["UnimernetModel"]}' > "$MFR_DIR/config.json"
+    echo "MFR配置文件已创建"
+fi
+
+# 如果临时目录不是符号链接，则创建符号链接
+if [ ! -L "$TMP_MFR_DIR" ]; then
+    echo "创建MFR模型符号链接..."
+    rm -rf "$TMP_MFR_DIR"
+    ln -s "$MFR_DIR" "$TMP_MFR_DIR"
+    echo "MFR符号链接已创建"
+fi
+
+# 确保配置文件在两个目录都存在
+if [ ! -f "$TMP_MFR_DIR/config.json" ]; then
+    echo "复制MFR配置文件到临时目录..."
+    cp "$MFR_DIR/config.json" "$TMP_MFR_DIR/config.json"
 fi
 
 # 启动API服务

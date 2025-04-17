@@ -88,9 +88,11 @@ COPY . /app/
 # 创建API服务需要的目录
 RUN mkdir -p /app/api/output \
     /app/magic_pdf/resources/models/MFD/YOLO \
+    /app/magic_pdf/resources/models/MFR/unimernet_hf_small_2503 \
     /app/magic_pdf/resources/models/TabRec/RapidTable \
     /app/magic_pdf/resources/models/OCR \
-    /tmp/models/MFD/YOLO
+    /tmp/models/MFD/YOLO \
+    /tmp/models/MFR/unimernet_hf_small_2503
 
 # 下载模型（使用专用的CPU模型下载脚本）
 RUN /bin/bash -c "source /opt/mineru_venv/bin/activate && \

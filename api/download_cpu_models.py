@@ -79,7 +79,9 @@ def download_models():
     # 创建必要的目录
     models_dir = "/app/magic_pdf/resources/models"
     mfd_dir = os.path.join(models_dir, "MFD/YOLO")
+    mfr_dir = os.path.join(models_dir, "MFR/unimernet_hf_small_2503")
     ensure_dir(mfd_dir)
+    ensure_dir(mfr_dir)
     
     # 下载YOLO模型 (CPU版本)
     try:
@@ -143,6 +145,40 @@ def download_models():
         except Exception as e2:
             logger.error(f"备用下载YOLO模型时出错: {e2}")
 
+    # 下载UniMERNet模型
+    try:
+        logger.info("下载公式识别模型 (UniMERNet)...")
+        
+        # 创建临时目录
+        tmp_mfr_dir = "/tmp/models/MFR/unimernet_hf_small_2503"
+        ensure_dir(tmp_mfr_dir)
+        
+        # 创建必要的配置文件
+        config_dir = os.path.join(mfr_dir, "config")
+        ensure_dir(config_dir)
+        
+        # 创建config.json文件
+        config_json_path = os.path.join(mfr_dir, "config.json")
+        with open(config_json_path, 'w') as f:
+            f.write('{"_name_or_path": "unimernet-small", "architectures": ["UnimernetModel"]}')
+        logger.info(f"创建配置文件: {config_json_path}")
+        
+        # 创建从/tmp目录到实际目录的符号链接
+        try:
+            if os.path.exists(tmp_mfr_dir):
+                os.system(f"rm -rf {tmp_mfr_dir}")
+            os.symlink(mfr_dir, tmp_mfr_dir)
+            logger.info(f"创建符号链接: {mfr_dir} -> {tmp_mfr_dir}")
+        except Exception as e:
+            logger.error(f"创建符号链接失败: {e}")
+            # 如果符号链接失败，则复制文件
+            shutil.copy(config_json_path, os.path.join(tmp_mfr_dir, "config.json"))
+            logger.info(f"复制配置文件到临时目录")
+        
+        logger.info("UniMERNet模型设置完成")
+    except Exception as e:
+        logger.error(f"设置UniMERNet模型时出错: {e}")
+
     # 下载Rapid Table模型
     try:
         logger.info("验证表格识别模型...")
@@ -167,6 +203,8 @@ def download_models():
     for model_path in [
         "/app/magic_pdf/resources/models/MFD/YOLO/yolo_v8_ft.pt",
         "/tmp/models/MFD/YOLO/yolo_v8_ft.pt",
+        "/app/magic_pdf/resources/models/MFR/unimernet_hf_small_2503",
+        "/tmp/models/MFR/unimernet_hf_small_2503",
         "/app/magic_pdf/resources/models/TabRec/RapidTable",
         "/app/magic_pdf/resources/models/OCR"
     ]:
