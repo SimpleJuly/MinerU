@@ -5,6 +5,10 @@ import uuid
 import shutil
 from typing import Dict, List, Optional, Union
 
+# 强制使用CPU模式
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+os.environ["OMP_NUM_THREADS"] = "1"
+
 # 添加项目根目录到Python路径，以便能够导入本地模块
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 

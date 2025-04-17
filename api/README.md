@@ -166,3 +166,8 @@ docker run --rm -v mineru_data:/data -v $(pwd):/backup ubuntu tar czf /backup/mi
 3. **性能问题**
    - 如果有GPU，确保正确配置了GPU支持
    - 对于大文件处理，建议使用异步API 
+
+
+```bash
+docker rmi $(docker images | grep "none" | awk '{print $3}') && docker builder prune
+```

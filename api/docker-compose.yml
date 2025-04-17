@@ -17,17 +17,20 @@ services:
       - table_models:/app/magic_pdf/resources/models/TabRec/RapidTable
     environment:
       - TZ=Asia/Shanghai
-      # 设置Python不缓存字节码，方便调试
+      # 强制使用CPU模式
+      - CUDA_VISIBLE_DEVICES=
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:32
+      # 禁用各种线程和内存相关的设置
+      - OMP_NUM_THREADS=1
       - PYTHONDONTWRITEBYTECODE=1
-      # 让Python输出不缓冲，便于查看日志
       - PYTHONUNBUFFERED=1
-      # 更精确的错误跟踪
       - PYTHONFAULTHANDLER=1
-      # 禁用Array API以避免NumPy相关错误
+      - ORT_DISABLE_THREADS_AFFINITY=999
       - NUMPY_EXPERIMENTAL_ARRAY_FUNCTION=0
-      # torch设置为不使用cudnn以提高兼容性
-      - TORCH_CUDNN_V8_API_ENABLED=0
-      # 设置日志级别为DEBUG，便于排查问题
+      - OMP_WAIT_POLICY=PASSIVE
+      - OMP_PROC_BIND=FALSE
+      - OMP_DYNAMIC=FALSE
+      - OMP_PLACES=CORES
       - LOG_LEVEL=DEBUG
     restart: unless-stopped
     # 健康检查确保服务正常运行
@@ -41,24 +44,9 @@ services:
     deploy:
       resources:
         limits:
-          # 增加内存限制以支持ultralytics
-          memory: 12G
-          cpus: '4'
-    # GPU配置 - 两种方式二选一
-    # 方式1: 新版Docker Compose (推荐)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    
-    # 方式2: 兼容旧版Docker (如果上面的不工作，尝试这个)
-    # runtime: nvidia
-    # environment:
-    #   - NVIDIA_VISIBLE_DEVICES=all
-    #   - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+          memory: 8G
+          cpus: '2'
+        # 删除所有GPU相关配置
 
 volumes:
   mineru_data:
