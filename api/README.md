@@ -168,6 +168,7 @@ docker run --rm -v mineru_data:/data -v $(pwd):/backup ubuntu tar czf /backup/mi
    - 对于大文件处理，建议使用异步API 
 
 
+### 清理Docker镜像和构建缓存
 ```bash
 docker rmi $(docker images | grep "none" | awk '{print $3}') && docker builder prune
 ```
