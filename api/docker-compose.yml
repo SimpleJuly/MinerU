@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  mineru-api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - mineru_data:/app/api/output
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    # 如果服务器有GPU，可以取消下面的注释以使用GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  mineru_data:
+    # 使用命名卷存储解析结果，防止容器重启后数据丢失 

@@ -2,3 +2,16 @@ aiofiles==24.1.0
 fastapi==0.115.6
 gotenberg_client==0.9.0
 pydantic==2.10.5
+python-multipart==0.0.9
+uvicorn==0.29.0
+opencv-python==4.8.1.78
+# 以下是magic_pdf模块所需的核心依赖
+PyMuPDF>=1.24.9,<1.25.0
+numpy>=1.21.6
+torch>=2.2.2
+transformers>=4.49.0,<5.0.0
+scikit-learn>=1.0.2
+tqdm>=4.67.1
+pdfminer.six==20231228
+fast-langdetect>=0.2.3,<0.3.0
+loguru>=0.6.0
