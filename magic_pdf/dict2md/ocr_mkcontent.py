@@ -147,21 +147,9 @@ def full_to_half(text: str) -> str:
 
 
 def merge_para_with_text(para_block):
-    # 检查是否为对象，并处理to_dict情况
-    if hasattr(para_block, 'to_dict'):
-        para_block = para_block.to_dict()
-        
     block_text = ''
     for line in para_block['lines']:
-        # 检查行对象
-        if hasattr(line, 'to_dict'):
-            line = line.to_dict()
-            
         for span in line['spans']:
-            # 检查span对象
-            if hasattr(span, 'to_dict'):
-                span = span.to_dict()
-                
             if span['type'] in [ContentType.Text]:
                 span['content'] = full_to_half(span['content'])
                 block_text += span['content']
@@ -169,17 +157,11 @@ def merge_para_with_text(para_block):
 
     para_text = ''
     for i, line in enumerate(para_block['lines']):
-        # 检查行对象
-        if hasattr(line, 'to_dict'):
-            line = line.to_dict()
 
         if i >= 1 and line.get(ListLineTag.IS_LIST_START_LINE, False):
             para_text += '  \n'
 
         for j, span in enumerate(line['spans']):
-            # 检查span对象
-            if hasattr(span, 'to_dict'):
-                span = span.to_dict()
 
             span_type = span['type']
             content = ''
@@ -218,10 +200,6 @@ def merge_para_with_text(para_block):
 
 
 def para_to_standard_format_v2(para_block, img_buket_path, page_idx, drop_reason=None):
-    # 检查是否为对象，并处理to_dict情况
-    if hasattr(para_block, 'to_dict'):
-        para_block = para_block.to_dict()
-    
     para_type = para_block['type']
     para_content = {}
     if para_type in [BlockType.Text, BlockType.List, BlockType.Index]:
@@ -246,10 +224,6 @@ def para_to_standard_format_v2(para_block, img_buket_path, page_idx, drop_reason
     elif para_type == BlockType.Image:
         para_content = {'type': 'image', 'img_path': '', 'img_caption': [], 'img_footnote': []}
         for block in para_block['blocks']:
-            # 检查子块对象
-            if hasattr(block, 'to_dict'):
-                block = block.to_dict()
-                
             if block['type'] == BlockType.ImageBody:
                 for line in block['lines']:
                     for span in line['spans']:
@@ -263,10 +237,6 @@ def para_to_standard_format_v2(para_block, img_buket_path, page_idx, drop_reason
     elif para_type == BlockType.Table:
         para_content = {'type': 'table', 'img_path': '', 'table_caption': [], 'table_footnote': []}
         for block in para_block['blocks']:
-            # 检查子块对象
-            if hasattr(block, 'to_dict'):
-                block = block.to_dict()
-                
             if block['type'] == BlockType.TableBody:
                 for line in block['lines']:
                     for span in line['spans']:
@@ -300,10 +270,6 @@ def union_make(pdf_info_dict: list,
                ):
     output_content = []
     for page_info in pdf_info_dict:
-        # 检查是否为对象，并处理to_dict情况
-        if hasattr(page_info, 'to_dict'):
-            page_info = page_info.to_dict()
-            
         drop_reason_flag = False
         drop_reason = None
         if page_info.get('need_drop', False):
@@ -336,10 +302,6 @@ def union_make(pdf_info_dict: list,
             output_content.extend(page_markdown)
         elif make_mode == MakeMode.STANDARD_FORMAT:
             for para_block in paras_of_layout:
-                # 检查是否为对象，并处理to_dict情况
-                if hasattr(para_block, 'to_dict'):
-                    para_block = para_block.to_dict()
-                
                 if drop_reason_flag:
                     para_content = para_to_standard_format_v2(
                         para_block, img_buket_path, page_idx)

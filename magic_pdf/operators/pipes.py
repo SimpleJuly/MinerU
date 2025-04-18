@@ -40,18 +40,6 @@ class PipeResult:
             str: return markdown content
         """
         pdf_info_list = self._pipe_res['pdf_info']
-        
-        # 确保pdf_info_list是列表类型
-        if hasattr(pdf_info_list, 'to_dict'):
-            pdf_info_list = pdf_info_list.to_dict()
-        elif not isinstance(pdf_info_list, list):
-            # 如果不是列表或可以转换为字典的对象，尝试将其转换为列表
-            try:
-                pdf_info_list = list(pdf_info_list)
-            except:
-                # 如果无法转换，创建一个包含原对象的列表
-                pdf_info_list = [pdf_info_list]
-        
         md_content = union_make(
             pdf_info_list, md_make_mode, drop_mode, img_dir_or_bucket_prefix
         )

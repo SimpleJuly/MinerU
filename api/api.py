@@ -20,8 +20,10 @@ from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedData
 from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
 from magic_pdf.config.enums import SupportedPdfParseMethod
+from magic_pdf.config.make_content_config import MakeMode, DropMode
 from magic_pdf.operators.models import InferenceResult
 from magic_pdf.operators.pipes import PipeResult
+from magic_pdf.tools.common import do_parse, prepare_env
 import aiofiles
 from pydantic import BaseModel
 from loguru import logger
@@ -66,84 +68,6 @@ class MemoryDataWriter(DataWriter):
     def close(self):
         self.buffer.close()
 
-def init_writers(
-    output_path: str,
-    output_image_path: str,
-) -> Tuple[FileBasedDataWriter, FileBasedDataWriter]:
-    """
-    初始化写入器
-    
-    Args:
-        output_path: 输出目录路径
-        output_image_path: 图像输出目录路径
-        
-    Returns:
-        包含写入器的元组 (writer, image_writer)
-    """
-    # 创建目录
-    os.makedirs(output_path, exist_ok=True)
-    os.makedirs(output_image_path, exist_ok=True)
-    
-    # 创建写入器
-    writer = FileBasedDataWriter(output_path)
-    image_writer = FileBasedDataWriter(output_image_path)
-    
-    return writer, image_writer
-
-def process_file(
-    file_bytes: bytes,
-    file_extension: str,
-    parse_method: str,
-    image_writer: FileBasedDataWriter,
-) -> Tuple[InferenceResult, PipeResult]:
-    """
-    处理文件内容
-    
-    Args:
-        file_bytes: 文件的二进制内容
-        file_extension: 文件扩展名
-        parse_method: 解析方法 ('ocr', 'txt', 'auto')
-        image_writer: 图像写入器
-        
-    Returns:
-        返回推理结果和管道结果的元组
-    """
-    ds = None
-    
-    if file_extension.lower() in pdf_extensions:
-        ds = PymuDocDataset(file_bytes)
-    elif file_extension.lower() in office_extensions:
-        # Office文件处理暂未实现
-        raise HTTPException(status_code=400, detail="暂不支持Office文件格式")
-    elif file_extension.lower() in image_extensions:
-        # 图片文件处理暂未实现
-        raise HTTPException(status_code=400, detail="暂不支持图片文件格式")
-    else:
-        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file_extension}")
-    
-    infer_result = None
-    pipe_result = None
-    
-    try:
-        if parse_method == "ocr":
-            infer_result = ds.apply(doc_analyze, ocr=True)
-            pipe_result = infer_result.pipe_ocr_mode(image_writer)
-        elif parse_method == "txt":
-            infer_result = ds.apply(doc_analyze, ocr=False)
-            pipe_result = infer_result.pipe_txt_mode(image_writer)
-        else:  # auto
-            if ds.classify() == SupportedPdfParseMethod.OCR:
-                infer_result = ds.apply(doc_analyze, ocr=True)
-                pipe_result = infer_result.pipe_ocr_mode(image_writer)
-            else:
-                infer_result = ds.apply(doc_analyze, ocr=False)
-                pipe_result = infer_result.pipe_txt_mode(image_writer)
-    except Exception as e:
-        logger.error(f"处理文件时出错: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"处理文件时出错: {str(e)}")
-        
-    return infer_result, pipe_result
-
 @app.post("/upload/sync")
 async def upload_sync(file: UploadFile = File(...), parse_method: str = "auto"):
     """
@@ -157,34 +81,52 @@ async def upload_sync(file: UploadFile = File(...), parse_method: str = "auto"):
     task_id = str(uuid.uuid4())
     filename = file.filename
     file_extension = os.path.splitext(filename)[1]
+    
+    # 检查文件类型
+    if file_extension.lower() not in pdf_extensions:
+        raise HTTPException(status_code=400, detail=f"暂时只支持PDF文件，不支持的文件类型: {file_extension}")
+    
     output_dir = f"output/{task_id}"
-    local_image_dir = f"{output_dir}/images"
-    image_dir = "images"
-
+    
     try:
-        # 初始化写入器
-        md_writer, image_writer = init_writers(output_dir, local_image_dir)
-        
         # 读取文件内容
         file_content = await file.read()
         if not file_content:
             raise HTTPException(status_code=400, detail="上传文件为空")
+        
+        # 创建临时目录保存文件
+        os.makedirs(output_dir, exist_ok=True)
         
         # 保存原始文件
         temp_file_path = f"{output_dir}/{filename}"
         async with aiofiles.open(temp_file_path, 'wb') as f:
             await f.write(file_content)
         
-        # 处理文件
-        _, pipe_result = process_file(file_content, file_extension, parse_method, image_writer)
+        # 使用do_parse处理文件
+        local_image_dir, local_md_dir = prepare_env(output_dir, "result", parse_method)
         
-        # 获取markdown内容
-        md_content = pipe_result.get_markdown(image_dir)
+        # 调用do_parse函数处理PDF文件
+        do_parse(
+            output_dir=output_dir,
+            pdf_file_name="result",
+            pdf_bytes_or_dataset=file_content,
+            model_list=[],  # 使用内置模型
+            parse_method=parse_method,
+            f_dump_md=True,
+            f_dump_middle_json=True,
+            f_dump_model_json=True,
+            f_dump_orig_pdf=True
+        )
         
-        # 保存结果
-        md_file_path = f"{output_dir}/result.md"
-        async with aiofiles.open(md_file_path, 'w', encoding='utf-8') as f:
-            await f.write(md_content)
+        # 读取生成的Markdown内容
+        md_file_path = f"{local_md_dir}/result.md"
+        
+        if not os.path.exists(md_file_path):
+            raise HTTPException(status_code=500, detail="生成Markdown文件失败")
+            
+        # 读取Markdown内容
+        with open(md_file_path, 'r', encoding='utf-8') as f:
+            md_content = f.read()
         
         # 记录任务
         tasks[task_id] = TaskStatus(
@@ -205,9 +147,27 @@ async def upload_sync(file: UploadFile = File(...), parse_method: str = "auto"):
         }
     
     except HTTPException as he:
+        # 记录失败状态
+        if 'task_id' in locals():
+            tasks[task_id] = TaskStatus(
+                id=task_id,
+                status="failed",
+                filename=filename,
+                created_at=time.time(),
+                error_message=str(he.detail)
+            )
         # 直接重新抛出HTTP异常
         raise he
     except Exception as e:
+        # 记录失败状态
+        if 'task_id' in locals():
+            tasks[task_id] = TaskStatus(
+                id=task_id,
+                status="failed",
+                filename=filename,
+                created_at=time.time(),
+                error_message=str(e)
+            )
         logger.error(f"处理文件时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
 
@@ -220,8 +180,6 @@ async def process_file_async(task_id: str, filename: str, file_path: str, parse_
             return
             
         output_dir = f"output/{task_id}"
-        local_image_dir = f"{output_dir}/images"
-        image_dir = "images"
         file_extension = os.path.splitext(filename)[1]
         
         # 更新任务状态
@@ -242,19 +200,33 @@ async def process_file_async(task_id: str, filename: str, file_path: str, parse_
             tasks[task_id].error_message = "文件内容为空"
             return
         
-        # 初始化写入器
-        md_writer, image_writer = init_writers(output_dir, local_image_dir)
+        # 创建目录及准备环境
+        local_image_dir, local_md_dir = prepare_env(output_dir, "result", parse_method)
         
-        # 处理文件
-        _, pipe_result = process_file(file_content, file_extension, parse_method, image_writer)
+        # 调用do_parse函数处理PDF文件
+        do_parse(
+            output_dir=output_dir,
+            pdf_file_name="result",
+            pdf_bytes_or_dataset=file_content,
+            model_list=[],  # 使用内置模型
+            parse_method=parse_method,
+            f_dump_md=True,
+            f_dump_middle_json=True,
+            f_dump_model_json=True,
+            f_dump_orig_pdf=True
+        )
         
-        # 获取markdown内容
-        md_content = pipe_result.get_markdown(image_dir)
+        # 读取生成的Markdown内容
+        md_file_path = f"{local_md_dir}/result.md"
         
-        # 保存结果
-        md_file_path = f"{output_dir}/result.md"
-        async with aiofiles.open(md_file_path, 'w', encoding='utf-8') as f:
-            await f.write(md_content)
+        if not os.path.exists(md_file_path):
+            tasks[task_id].status = "failed"
+            tasks[task_id].error_message = "生成Markdown文件失败"
+            return
+            
+        # 读取Markdown内容
+        with open(md_file_path, 'r', encoding='utf-8') as f:
+            md_content = f.read()
         
         # 更新任务状态为已完成
         tasks[task_id].status = "completed"
@@ -281,11 +253,19 @@ async def upload_async(background_tasks: BackgroundTasks, file: UploadFile = Fil
     try:
         task_id = str(uuid.uuid4())
         filename = file.filename if file.filename else f"document_{task_id}.pdf"
+        file_extension = os.path.splitext(filename)[1]
+        
+        # 检查文件类型
+        if file_extension.lower() not in pdf_extensions:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"暂时只支持PDF文件，不支持的文件类型: {file_extension}"}
+            )
+            
         output_dir = f"output/{task_id}"
         
         # 确保目录存在
         os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(f"{output_dir}/images", exist_ok=True)
         
         # 保存上传的文件
         temp_file_path = f"{output_dir}/{filename}"
