@@ -188,22 +188,79 @@ fi
 # 检查和创建MFR配置文件
 if [ ! -f "$MFR_DIR/config.json" ]; then
     echo "创建MFR模型配置文件..."
-    echo '{"_name_or_path": "unimernet-small", "architectures": ["UnimernetModel"]}' > "$MFR_DIR/config.json"
+    # 创建主配置文件
+    cat > "$MFR_DIR/config.json" << 'EOF'
+{
+  "_name_or_path": "unimernet-small",
+  "architectures": ["UnimernetModel"],
+  "model_type": "vision-encoder-decoder",
+  "encoder": {
+    "_name_or_path": "microsoft/swinv2-tiny-patch4-window8-256",
+    "model_type": "swinv2"
+  },
+  "decoder": {
+    "_name_or_path": "facebook/mbart-large-50",
+    "model_type": "mbart"
+  },
+  "use_return_dict": true
+}
+EOF
     echo "MFR配置文件已创建"
 fi
 
-# 如果临时目录不是符号链接，则创建符号链接
-if [ ! -L "$TMP_MFR_DIR" ]; then
-    echo "创建MFR模型符号链接..."
-    rm -rf "$TMP_MFR_DIR"
-    ln -s "$MFR_DIR" "$TMP_MFR_DIR"
-    echo "MFR符号链接已创建"
+# 确保encoder目录和配置存在
+mkdir -p "$MFR_DIR/encoder"
+if [ ! -f "$MFR_DIR/encoder/config.json" ]; then
+    echo "创建encoder配置文件..."
+    cat > "$MFR_DIR/encoder/config.json" << 'EOF'
+{
+  "_name_or_path": "microsoft/swinv2-tiny-patch4-window8-256",
+  "model_type": "swinv2"
+}
+EOF
+    echo "Encoder配置文件已创建"
 fi
 
-# 确保配置文件在两个目录都存在
-if [ ! -f "$TMP_MFR_DIR/config.json" ]; then
-    echo "复制MFR配置文件到临时目录..."
-    cp "$MFR_DIR/config.json" "$TMP_MFR_DIR/config.json"
+# 确保decoder目录和配置存在
+mkdir -p "$MFR_DIR/decoder"
+if [ ! -f "$MFR_DIR/decoder/config.json" ]; then
+    echo "创建decoder配置文件..."
+    cat > "$MFR_DIR/decoder/config.json" << 'EOF'
+{
+  "_name_or_path": "facebook/mbart-large-50",
+  "model_type": "mbart"
+}
+EOF
+    echo "Decoder配置文件已创建"
+fi
+
+# 如果临时目录不是符号链接，则创建符号链接或复制文件
+if [ -L "$TMP_MFR_DIR" ]; then
+    echo "MFR模型符号链接已存在"
+else
+    echo "创建MFR模型目录结构..."
+    # 删除可能存在的临时目录
+    rm -rf "$TMP_MFR_DIR"
+    # 尝试创建符号链接
+    if ln -s "$MFR_DIR" "$TMP_MFR_DIR" 2>/dev/null; then
+        echo "创建符号链接成功: $MFR_DIR -> $TMP_MFR_DIR"
+    else
+        # 如果符号链接失败，则复制文件
+        echo "符号链接创建失败，使用文件复制..."
+        mkdir -p "$TMP_MFR_DIR"
+        # 复制配置文件
+        cp "$MFR_DIR/config.json" "$TMP_MFR_DIR/config.json"
+        
+        # 复制encoder配置
+        mkdir -p "$TMP_MFR_DIR/encoder"
+        cp "$MFR_DIR/encoder/config.json" "$TMP_MFR_DIR/encoder/config.json"
+        
+        # 复制decoder配置
+        mkdir -p "$TMP_MFR_DIR/decoder" 
+        cp "$MFR_DIR/decoder/config.json" "$TMP_MFR_DIR/decoder/config.json"
+        
+        echo "配置文件已复制到临时目录"
+    fi
 fi
 
 # 启动API服务

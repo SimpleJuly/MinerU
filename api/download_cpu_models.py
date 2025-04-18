@@ -157,11 +157,54 @@ def download_models():
         config_dir = os.path.join(mfr_dir, "config")
         ensure_dir(config_dir)
         
-        # 创建config.json文件
+        # 创建config.json文件 - 包含完整的encoder和decoder配置
         config_json_path = os.path.join(mfr_dir, "config.json")
+        config_json = {
+            "_name_or_path": "unimernet-small",
+            "architectures": ["UnimernetModel"],
+            "model_type": "vision-encoder-decoder",
+            "encoder": {
+                "_name_or_path": "microsoft/swinv2-tiny-patch4-window8-256",
+                "model_type": "swinv2"
+            },
+            "decoder": {
+                "_name_or_path": "facebook/mbart-large-50",
+                "model_type": "mbart"
+            },
+            "use_return_dict": True
+        }
+        
         with open(config_json_path, 'w') as f:
-            f.write('{"_name_or_path": "unimernet-small", "architectures": ["UnimernetModel"]}')
+            json.dump(config_json, f, indent=2)
         logger.info(f"创建配置文件: {config_json_path}")
+        
+        # 创建encoder配置文件目录
+        encoder_dir = os.path.join(mfr_dir, "encoder")
+        ensure_dir(encoder_dir)
+        
+        # 创建encoder/config.json
+        encoder_config = {
+            "_name_or_path": "microsoft/swinv2-tiny-patch4-window8-256",
+            "model_type": "swinv2"
+        }
+        encoder_config_path = os.path.join(encoder_dir, "config.json")
+        with open(encoder_config_path, 'w') as f:
+            json.dump(encoder_config, f, indent=2)
+        logger.info(f"创建encoder配置文件: {encoder_config_path}")
+        
+        # 创建decoder配置文件目录
+        decoder_dir = os.path.join(mfr_dir, "decoder")
+        ensure_dir(decoder_dir)
+        
+        # 创建decoder/config.json
+        decoder_config = {
+            "_name_or_path": "facebook/mbart-large-50",
+            "model_type": "mbart"
+        }
+        decoder_config_path = os.path.join(decoder_dir, "config.json")
+        with open(decoder_config_path, 'w') as f:
+            json.dump(decoder_config, f, indent=2)
+        logger.info(f"创建decoder配置文件: {decoder_config_path}")
         
         # 创建从/tmp目录到实际目录的符号链接
         try:
@@ -172,7 +215,15 @@ def download_models():
         except Exception as e:
             logger.error(f"创建符号链接失败: {e}")
             # 如果符号链接失败，则复制文件
-            shutil.copy(config_json_path, os.path.join(tmp_mfr_dir, "config.json"))
+            if not os.path.exists(os.path.join(tmp_mfr_dir, "config.json")):
+                shutil.copy(config_json_path, os.path.join(tmp_mfr_dir, "config.json"))
+            # 复制encoder和decoder目录
+            tmp_encoder_dir = os.path.join(tmp_mfr_dir, "encoder")
+            tmp_decoder_dir = os.path.join(tmp_mfr_dir, "decoder")
+            ensure_dir(tmp_encoder_dir)
+            ensure_dir(tmp_decoder_dir)
+            shutil.copy(encoder_config_path, os.path.join(tmp_encoder_dir, "config.json"))
+            shutil.copy(decoder_config_path, os.path.join(tmp_decoder_dir, "config.json"))
             logger.info(f"复制配置文件到临时目录")
         
         logger.info("UniMERNet模型设置完成")
