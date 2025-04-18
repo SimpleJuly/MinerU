@@ -186,52 +186,15 @@ else
 fi
 
 # 检查和创建MFR配置文件
-if [ ! -f "$MFR_DIR/config.json" ]; then
-    echo "创建MFR模型配置文件..."
-    # 创建主配置文件
-    cat > "$MFR_DIR/config.json" << 'EOF'
-{
-  "_name_or_path": "unimernet-small",
-  "architectures": ["UnimernetModel"],
-  "model_type": "vision-encoder-decoder",
-  "encoder": {
-    "_name_or_path": "microsoft/swinv2-tiny-patch4-window8-256",
-    "model_type": "swinv2"
-  },
-  "decoder": {
-    "_name_or_path": "facebook/mbart-large-50",
-    "model_type": "mbart"
-  },
-  "use_return_dict": true
-}
-EOF
-    echo "MFR配置文件已创建"
-fi
-
-# 确保encoder目录和配置存在
-mkdir -p "$MFR_DIR/encoder"
-if [ ! -f "$MFR_DIR/encoder/config.json" ]; then
-    echo "创建encoder配置文件..."
-    cat > "$MFR_DIR/encoder/config.json" << 'EOF'
-{
-  "_name_or_path": "microsoft/swinv2-tiny-patch4-window8-256",
-  "model_type": "swinv2"
-}
-EOF
-    echo "Encoder配置文件已创建"
-fi
-
-# 确保decoder目录和配置存在
-mkdir -p "$MFR_DIR/decoder"
-if [ ! -f "$MFR_DIR/decoder/config.json" ]; then
-    echo "创建decoder配置文件..."
-    cat > "$MFR_DIR/decoder/config.json" << 'EOF'
-{
-  "_name_or_path": "facebook/mbart-large-50",
-  "model_type": "mbart"
-}
-EOF
-    echo "Decoder配置文件已创建"
+if [ ! -f "$MFR_DIR/config.json" ] || [ ! -f "$MFR_DIR/encoder/config.json" ] || [ ! -f "$MFR_DIR/decoder/config.json" ]; then
+    echo "使用辅助脚本创建MFR模型配置..."
+    # 先尝试安装transformers库
+    pip install transformers --no-cache-dir -i https://pypi.org/simple || true
+    
+    # 执行配置创建脚本
+    python3 /app/api/create_model_configs.py
+    
+    echo "MFR模型配置创建完成"
 fi
 
 # 如果临时目录不是符号链接，则创建符号链接或复制文件

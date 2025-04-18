@@ -3,7 +3,9 @@ import sys
 import time
 import uuid
 import shutil
-from typing import Dict, List, Optional, Union
+import tempfile
+from io import StringIO
+from typing import Dict, List, Optional, Union, Tuple
 
 # 强制使用CPU模式
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -14,17 +16,25 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
-from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
+from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader, DataWriter
 from magic_pdf.data.dataset import PymuDocDataset
 from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
 from magic_pdf.config.enums import SupportedPdfParseMethod
+from magic_pdf.operators.models import InferenceResult
+from magic_pdf.operators.pipes import PipeResult
 import aiofiles
 from pydantic import BaseModel
+from loguru import logger
 
 app = FastAPI(title="MinerU API", description="PDF解析和文档挖掘服务")
 
 # 存储任务状态和结果的字典
 tasks = {}
+
+# 支持的文件扩展名
+pdf_extensions = [".pdf"]
+office_extensions = [".ppt", ".pptx", ".doc", ".docx"]
+image_extensions = [".png", ".jpg", ".jpeg"]
 
 class TaskStatus(BaseModel):
     id: str
@@ -34,51 +44,146 @@ class TaskStatus(BaseModel):
     completed_at: Optional[float] = None
     error_message: Optional[str] = None
     result_path: Optional[str] = None
+    result_content: Optional[str] = None
+
+class MemoryDataWriter(DataWriter):
+    """内存数据写入器，用于将结果保存到内存而非文件"""
+    def __init__(self):
+        self.buffer = StringIO()
+
+    def write(self, path: str, data: bytes) -> None:
+        if isinstance(data, str):
+            self.buffer.write(data)
+        else:
+            self.buffer.write(data.decode("utf-8"))
+
+    def write_string(self, path: str, data: str) -> None:
+        self.buffer.write(data)
+
+    def get_value(self) -> str:
+        return self.buffer.getvalue()
+
+    def close(self):
+        self.buffer.close()
+
+def init_writers(
+    output_path: str,
+    output_image_path: str,
+) -> Tuple[FileBasedDataWriter, FileBasedDataWriter]:
+    """
+    初始化写入器
+    
+    Args:
+        output_path: 输出目录路径
+        output_image_path: 图像输出目录路径
+        
+    Returns:
+        包含写入器的元组 (writer, image_writer)
+    """
+    # 创建目录
+    os.makedirs(output_path, exist_ok=True)
+    os.makedirs(output_image_path, exist_ok=True)
+    
+    # 创建写入器
+    writer = FileBasedDataWriter(output_path)
+    image_writer = FileBasedDataWriter(output_image_path)
+    
+    return writer, image_writer
+
+def process_file(
+    file_bytes: bytes,
+    file_extension: str,
+    parse_method: str,
+    image_writer: FileBasedDataWriter,
+) -> Tuple[InferenceResult, PipeResult]:
+    """
+    处理文件内容
+    
+    Args:
+        file_bytes: 文件的二进制内容
+        file_extension: 文件扩展名
+        parse_method: 解析方法 ('ocr', 'txt', 'auto')
+        image_writer: 图像写入器
+        
+    Returns:
+        返回推理结果和管道结果的元组
+    """
+    ds = None
+    
+    if file_extension.lower() in pdf_extensions:
+        ds = PymuDocDataset(file_bytes)
+    elif file_extension.lower() in office_extensions:
+        # Office文件处理暂未实现
+        raise HTTPException(status_code=400, detail="暂不支持Office文件格式")
+    elif file_extension.lower() in image_extensions:
+        # 图片文件处理暂未实现
+        raise HTTPException(status_code=400, detail="暂不支持图片文件格式")
+    else:
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file_extension}")
+    
+    infer_result = None
+    pipe_result = None
+    
+    try:
+        if parse_method == "ocr":
+            infer_result = ds.apply(doc_analyze, ocr=True)
+            pipe_result = infer_result.pipe_ocr_mode(image_writer)
+        elif parse_method == "txt":
+            infer_result = ds.apply(doc_analyze, ocr=False)
+            pipe_result = infer_result.pipe_txt_mode(image_writer)
+        else:  # auto
+            if ds.classify() == SupportedPdfParseMethod.OCR:
+                infer_result = ds.apply(doc_analyze, ocr=True)
+                pipe_result = infer_result.pipe_ocr_mode(image_writer)
+            else:
+                infer_result = ds.apply(doc_analyze, ocr=False)
+                pipe_result = infer_result.pipe_txt_mode(image_writer)
+    except Exception as e:
+        logger.error(f"处理文件时出错: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"处理文件时出错: {str(e)}")
+        
+    return infer_result, pipe_result
 
 @app.post("/upload/sync")
-async def upload_sync(file: UploadFile = File(...)):
+async def upload_sync(file: UploadFile = File(...), parse_method: str = "auto"):
     """
     同步上传并解析文件，等待解析完成后返回结果
+    
+    Args:
+        file: 要上传的文件
+        parse_method: 解析方法，可以是auto, ocr, txt。默认为auto。
     """
     # 准备环境
     task_id = str(uuid.uuid4())
     filename = file.filename
+    file_extension = os.path.splitext(filename)[1]
     output_dir = f"output/{task_id}"
-    local_image_dir, local_md_dir = f"{output_dir}/images", output_dir
+    local_image_dir = f"{output_dir}/images"
     image_dir = "images"
 
-    os.makedirs(local_image_dir, exist_ok=True)
-
     try:
-        # 使用 aiofiles 异步打开文件并写入数据
+        # 初始化写入器
+        md_writer, image_writer = init_writers(output_dir, local_image_dir)
+        
+        # 读取文件内容
+        file_content = await file.read()
+        if not file_content:
+            raise HTTPException(status_code=400, detail="上传文件为空")
+        
+        # 保存原始文件
         temp_file_path = f"{output_dir}/{filename}"
         async with aiofiles.open(temp_file_path, 'wb') as f:
-            await f.write(await file.read())
+            await f.write(file_content)
         
-        with open(temp_file_path, 'rb') as f:
-            pdf_bytes = f.read()
-        
-        # 创建输出目录
-        image_writer = FileBasedDataWriter(local_image_dir)
-        md_writer = FileBasedDataWriter(local_md_dir)
-        
-        # 创建数据集实例
-        ds = PymuDocDataset(pdf_bytes)
-        
-        # 推理
-        if ds.classify() == SupportedPdfParseMethod.OCR:
-            infer_result = ds.apply(doc_analyze, ocr=True)
-            pipe_result = infer_result.pipe_ocr_mode(image_writer)
-        else:
-            infer_result = ds.apply(doc_analyze, ocr=False)
-            pipe_result = infer_result.pipe_txt_mode(image_writer)
+        # 处理文件
+        _, pipe_result = process_file(file_content, file_extension, parse_method, image_writer)
         
         # 获取markdown内容
         md_content = pipe_result.get_markdown(image_dir)
         
         # 保存结果
         md_file_path = f"{output_dir}/result.md"
-        async with aiofiles.open(md_file_path, 'w') as f:
+        async with aiofiles.open(md_file_path, 'w', encoding='utf-8') as f:
             await f.write(md_content)
         
         # 记录任务
@@ -88,7 +193,8 @@ async def upload_sync(file: UploadFile = File(...)):
             filename=filename,
             created_at=time.time(),
             completed_at=time.time(),
-            result_path=md_file_path
+            result_path=md_file_path,
+            result_content=md_content
         )
         
         return {
@@ -98,15 +204,14 @@ async def upload_sync(file: UploadFile = File(...)):
             "md_content": md_content
         }
     
+    except HTTPException as he:
+        # 直接重新抛出HTTP异常
+        raise he
     except Exception as e:
-        # 记录失败状态
-        if task_id in tasks:
-            tasks[task_id].status = "failed"
-            tasks[task_id].error_message = str(e)
-        
+        logger.error(f"处理文件时出错: {str(e)}")
         raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
 
-async def process_file_async(task_id: str, filename: str, file_path: str):
+async def process_file_async(task_id: str, filename: str, file_path: str, parse_method: str = "auto"):
     """
     异步处理文件的后台任务
     """
@@ -115,11 +220,9 @@ async def process_file_async(task_id: str, filename: str, file_path: str):
             return
             
         output_dir = f"output/{task_id}"
-        local_image_dir, local_md_dir = f"{output_dir}/images", output_dir
+        local_image_dir = f"{output_dir}/images"
         image_dir = "images"
-        
-        # 确保目录存在
-        os.makedirs(local_image_dir, exist_ok=True)
+        file_extension = os.path.splitext(filename)[1]
         
         # 更新任务状态
         tasks[task_id].status = "processing"
@@ -132,51 +235,48 @@ async def process_file_async(task_id: str, filename: str, file_path: str):
             
         # 读取文件
         with open(file_path, 'rb') as f:
-            pdf_bytes = f.read()
+            file_content = f.read()
             
-        if not pdf_bytes:
+        if not file_content:
             tasks[task_id].status = "failed"
             tasks[task_id].error_message = "文件内容为空"
             return
         
-        # 创建输出目录
-        image_writer = FileBasedDataWriter(local_image_dir)
-        md_writer = FileBasedDataWriter(local_md_dir)
+        # 初始化写入器
+        md_writer, image_writer = init_writers(output_dir, local_image_dir)
         
-        # 创建数据集实例
-        ds = PymuDocDataset(pdf_bytes)
-        
-        # 推理
-        if ds.classify() == SupportedPdfParseMethod.OCR:
-            infer_result = ds.apply(doc_analyze, ocr=True)
-            pipe_result = infer_result.pipe_ocr_mode(image_writer)
-        else:
-            infer_result = ds.apply(doc_analyze, ocr=False)
-            pipe_result = infer_result.pipe_txt_mode(image_writer)
+        # 处理文件
+        _, pipe_result = process_file(file_content, file_extension, parse_method, image_writer)
         
         # 获取markdown内容
         md_content = pipe_result.get_markdown(image_dir)
         
         # 保存结果
         md_file_path = f"{output_dir}/result.md"
-        async with aiofiles.open(md_file_path, 'w') as f:
+        async with aiofiles.open(md_file_path, 'w', encoding='utf-8') as f:
             await f.write(md_content)
         
         # 更新任务状态为已完成
         tasks[task_id].status = "completed"
         tasks[task_id].completed_at = time.time()
         tasks[task_id].result_path = md_file_path
+        tasks[task_id].result_content = md_content
         
     except Exception as e:
+        logger.error(f"异步处理文件时出错: {str(e)}")
         # 更新任务状态为失败
         if task_id in tasks:
             tasks[task_id].status = "failed"
             tasks[task_id].error_message = str(e)
 
 @app.post("/upload/async")
-async def upload_async(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def upload_async(background_tasks: BackgroundTasks, file: UploadFile = File(...), parse_method: str = "auto"):
     """
     异步上传文件，立即返回任务ID，后台处理文件
+    
+    Args:
+        file: 要上传的文件
+        parse_method: 解析方法，可以是auto, ocr, txt。默认为auto。
     """
     try:
         task_id = str(uuid.uuid4())
@@ -205,11 +305,12 @@ async def upload_async(background_tasks: BackgroundTasks, file: UploadFile = Fil
             id=task_id,
             status="pending",
             filename=filename,
-            created_at=time.time()
+            created_at=time.time(),
+            result_path=None
         )
         
         # 添加异步处理任务
-        background_tasks.add_task(process_file_async, task_id, filename, temp_file_path)
+        background_tasks.add_task(process_file_async, task_id, filename, temp_file_path, parse_method)
         
         return {
             "task_id": task_id,
@@ -217,6 +318,7 @@ async def upload_async(background_tasks: BackgroundTasks, file: UploadFile = Fil
             "message": "文件已接收，正在后台处理"
         }
     except Exception as e:
+        logger.error(f"异步上传文件时出错: {str(e)}")
         return JSONResponse(
             status_code=500,
             content={"error": f"上传文件失败: {str(e)}"}

@@ -4,34 +4,31 @@ gotenberg_client==0.9.0
 pydantic>=2.7.2,<2.11
 python-multipart==0.0.9
 uvicorn==0.29.0
-# 显式指定numpy 1.x版本，解决与opencv-python的兼容性问题
+#boto3>=1.28.43
+Brotli>=1.1.0
+click>=8.1.7
+PyMuPDF>=1.24.9,<1.25.0
+loguru>=0.6.0
 numpy>=1.21.6,<2.0.0
-# 显式指定torch版本
+fast-langdetect>=0.2.3,<0.3.0
+scikit-learn>=1.0.2
+pdfminer.six==20231228
 torch==2.6.0
 torchvision
-opencv-python==4.8.1.78
-# 添加文档处理模型依赖
+matplotlib>=3.10
 ultralytics>=8.3.48
-# 添加doclayout_yolo和其依赖
+rapid-table>=1.0.3,<2.0.0
 doclayout-yolo==0.0.2b1
 dill>=0.3.9,<1
-# 添加表格识别模块
 rapid_table>=1.0.3,<2.0.0
-# 添加其他必要依赖
-ftfy>=6.3.1,<7
 PyYAML>=6.0.2,<7
+ftfy>=6.3.1,<7
+openai>=1.70.0,<2
+pydantic>=2.7.2,<2.11
+transformers>=4.49.0,<5.0.0
+gradio-pdf>=0.0.21
 shapely>=2.0.7,<3
 pyclipper>=1.3.0,<2
 omegaconf>=2.3.0,<3
-accelerate==1.6.0
-matplotlib>=3.10
-# 以下是magic_pdf模块所需的核心依赖
-boto3>=1.28.43
-Brotli>=1.1.0
-PyMuPDF>=1.24.9,<1.25.0
-transformers>=4.49.0,<5.0.0
-scikit-learn>=1.0.2
 tqdm>=4.67.1
-pdfminer.six==20231228
-fast-langdetect>=0.2.3,<0.3.0
-loguru>=0.6.0
+accelerate==1.6.0
